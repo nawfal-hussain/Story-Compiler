@@ -8,7 +8,6 @@ Muhammad Alyan 22k-4582
 """
 
 KEYWORDS = ['STORY', 'END', 'SCENE', 'CHARACTER', 'SAY', 'CHOICE', 'GOTO']
-MAX_TOKENS = 1000
 
 def tokenize(code):
     """Break code into tokens."""
@@ -39,6 +38,7 @@ def tokenize(code):
             while i < len(code) and code[i] != '"':
                 string_value += code[i]
                 i += 1
+            i += 1
             tokens.append(('STRING', string_value, line))
             continue
         
