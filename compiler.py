@@ -64,22 +64,137 @@ def tokenize(code):
     return tokens
 
 
-def print_tokens(tokens):
-    print("\nToken Stream:")
-    print("="*50)
-    for i, (token_type, value, line) in enumerate(tokens):
-        print(f"{i+1:3}. [{token_type:10}] {repr(value):20} (line {line})")
-    print("="*50)
+class Parser:
+    def __init__(self, tokens):
+        self.tokens = tokens
+        self.pos = 0
+    
+    def current(self):
+        if self.pos < len(self.tokens):
+            return self.tokens[self.pos]
+        return ('EOF', 'EOF', 0)
+    
+    def eat(self, expected_type):
+        token = self.current()
+        if token[0] == expected_type:
+            self.pos += 1
+            return token
+        else:
+            raise SyntaxError(f"Expected {expected_type}, got {token[0]} at line {token[2]}")
+    
+    def parse(self):
+        program = {
+            'type': 'program',
+            'title': '',
+            'characters': [],
+            'scenes': []
+        }
+        
+        self.eat('STORY')
+        title_token = self.eat('STRING')
+        program['title'] = title_token[1]
+        
+        while self.current()[0] == 'CHARACTER':
+            program['characters'].append(self.parse_character())
+        
+        while self.current()[0] == 'SCENE':
+            program['scenes'].append(self.parse_scene())
+        
+        self.eat('END')
+        self.eat('STORY')
+        
+        return program
+    
+    def parse_character(self):
+        self.eat('CHARACTER')
+        id_token = self.eat('ID')
+        name_token = self.eat('STRING')
+        return {'id': id_token[1], 'name': name_token[1]}
+    
+    def parse_scene(self):
+        self.eat('SCENE')
+        id_token = self.eat('ID')
+        
+        scene = {'id': id_token[1], 'statements': []}
+        
+        while self.current()[0] not in ['END', 'EOF']:
+            scene['statements'].append(self.parse_statement())
+        
+        self.eat('END')
+        self.eat('SCENE')
+        
+        return scene
+    
+    def parse_statement(self):
+        token = self.current()
+        
+        if token[0] == 'ID' and self.pos + 1 < len(self.tokens) and self.tokens[self.pos + 1][0] == 'SAY':
+            char_token = self.eat('ID')
+            self.eat('SAY')
+            text_token = self.eat('STRING')
+            return {'type': 'say', 'character': char_token[1], 'text': text_token[1]}
+        
+        if token[0] == 'CHOICE':
+            self.eat('CHOICE')
+            text_token = self.eat('STRING')
+            self.eat('ARROW')
+            target_token = self.eat('ID')
+            return {'type': 'choice', 'text': text_token[1], 'target': target_token[1]}
+        
+        if token[0] == 'GOTO':
+            self.eat('GOTO')
+            target_token = self.eat('ID')
+            return {'type': 'goto', 'target': target_token[1]}
+        
+        raise SyntaxError(f"Unknown statement: {token}")
+
+
+def print_ast(program, indent=0):
+    prefix = "  " * indent
+    print(f"{prefix}Program: {program['title']}")
+    
+    print(f"{prefix}  Characters:")
+    for char in program['characters']:
+        print(f"{prefix}    - {char['id']} = \"{char['name']}\"")
+    
+    print(f"{prefix}  Scenes:")
+    for scene in program['scenes']:
+        print(f"{prefix}    Scene: {scene['id']}")
+        for stmt in scene['statements']:
+            print(f"{prefix}      - {stmt}")
 
 
 if __name__ == "__main__":
     test_code = '''
-STORY "Test"
+STORY "Test Story"
 CHARACTER hero "The Hero"
+CHARACTER guide "The Guide"
+
 SCENE start
-    hero SAY "Hello!"
+    guide SAY "Welcome!"
+    hero SAY "Thanks!"
+    CHOICE "Continue" -> end
 END SCENE
+
+SCENE end
+    hero SAY "Goodbye!"
+END SCENE
+
 END STORY
 '''
+    
+    print("Tokenizing...")
     tokens = tokenize(test_code)
-    print_tokens(tokens)
+    print(f"Generated {len(tokens)} tokens\n")
+    
+    print("Parsing...")
+    parser = Parser(tokens)
+    try:
+        program = parser.parse()
+        print("Parse successful!\n")
+        print("="*50)
+        print("Abstract Syntax Tree:")
+        print("="*50)
+        print_ast(program)
+    except SyntaxError as e:
+        print(f"Parse error: {e}")

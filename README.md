@@ -1,12 +1,15 @@
 # Story Compiler
 
-## Compiler Construction Project
+## CS4031 Compiler Construction Project
 
 ---
 
 ## Current Status
 
-Lexical Analysis (Tokenizer)
+✓ Phase 1: Lexical Analysis  
+✓ Phase 2: Syntax Analysis (Parser)
+
+In Progress: Phase 3 (Semantic Analysis)
 
 ---
 
@@ -16,21 +19,24 @@ Lexical Analysis (Tokenizer)
 python compiler.py
 ```
 
-Currently runs with hardcoded test input.
+---
+
+## Language Grammar
+
+```
+program    → STORY string characters scenes END STORY
+character  → CHARACTER id string
+scene      → SCENE id statements END SCENE
+statement  → id SAY string
+           | CHOICE string -> id
+           | GOTO id
+```
 
 ---
 
-## Language Keywords
+## Features
 
-```
-STORY, END, SCENE, CHARACTER, SAY, CHOICE, GOTO
-```
-
----
-
-## Token Types
-
-- `STRING` - Text in quotes
-- `ID` - Identifiers
-- `ARROW` - `->`
-- Keywords - Uppercase matches
+- Tokenization of source code
+- Grammar validation
+- AST construction
+- Basic error reporting
