@@ -1,4 +1,4 @@
-# Story Compiler
+# StoryScript Compiler
 
 ## CS4031 Compiler Construction Project
 
@@ -7,9 +7,10 @@
 ## Current Status
 
 ✓ Phase 1: Lexical Analysis  
-✓ Phase 2: Syntax Analysis (Parser)
+✓ Phase 2: Syntax Analysis  
+✓ Phase 3: Semantic Analysis
 
-In Progress: Phase 3 (Semantic Analysis)
+Next: IR Generation
 
 ---
 
@@ -21,22 +22,25 @@ python compiler.py
 
 ---
 
-## Language Grammar
+## Language Features
 
-```
-program    → STORY string characters scenes END STORY
-character  → CHARACTER id string
-scene      → SCENE id statements END SCENE
-statement  → id SAY string
-           | CHOICE string -> id
-           | GOTO id
-```
+### Supported Statements
+- `CHARACTER` declarations
+- `SET` variable assignments
+- `SAY` dialogue
+- `CHOICE` branching
+- `GOTO` jumps
+- `IF/ELSE/ENDIF` conditionals
+
+### Operators
+- Comparison: `>`, `<`, `==`
+- Assignment: `=`
 
 ---
 
-## Features
+## Semantic Validation
 
-- Tokenization of source code
-- Grammar validation
-- AST construction
-- Basic error reporting
+The compiler now validates:
+- Character references
+- Scene targets
+- Variable declarations
