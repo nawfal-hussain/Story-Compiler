@@ -80,6 +80,14 @@ def tokenize(code):
             tokens.append(('ASSIGN', '=', line))
             i += 1
             continue
+        if char == '+':
+            tokens.append(('PLUS', '+', line))
+            i += 1
+            continue
+        if char == '-':
+            tokens.append(('MINUS', '-', line))
+            i += 1
+            continue
         
         i += 1
     
@@ -158,6 +166,11 @@ class Parser:
             return {'type': 'boolean', 'value': False}
         elif token[0] == 'ID':
             self.eat('ID')
+            if self.current()[0] in ['PLUS', 'MINUS']:
+                op = self.current()[1]
+                self.pos += 1
+                right = self.parse_value()
+                return {'type': 'binary', 'op': op, 'left': token[1], 'right': right}
             return {'type': 'variable', 'name': token[1]}
         else:
             raise SyntaxError(f"Unexpected value: {token}")
@@ -271,7 +284,12 @@ def semantic_analysis(program):
 
 def generate_ir(program):
     ir_code = []
+    temp_counter = [0]
     label_counter = [0]
+    
+    def new_temp():
+        temp_counter[0] += 1
+        return f"t{temp_counter[0]}"
     
     def new_label():
         label_counter[0] += 1
@@ -304,8 +322,13 @@ def generate_ir(program):
             
             elif stmt['type'] == 'set':
                 value = stmt['value']
-                if isinstance(value, dict) and value['type'] == 'number':
-                    ir_code.append(('COPY', value['value'], None, stmt['variable']))
+                if isinstance(value, dict):
+                    if value['type'] == 'binary':
+                        temp = new_temp()
+                        ir_code.append((value['op'], value['left'], value['right'], temp))
+                        ir_code.append(('COPY', temp, None, stmt['variable']))
+                    elif value['type'] == 'number':
+                        ir_code.append(('COPY', value['value'], None, stmt['variable']))
             
             elif stmt['type'] == 'if':
                 else_label = new_label()
@@ -323,6 +346,8 @@ def generate_ir(program):
                 for s in stmt['then']:
                     if s['type'] == 'goto':
                         ir_code.append(('GOTO', f"scene_{s['target']}", None, None))
+                    elif s['type'] == 'say':
+                        ir_code.append(('SAY', s['character'], s['text'], None))
                 
                 if stmt['else']:
                     ir_code.append(('GOTO', end_label, None, None))
@@ -330,6 +355,8 @@ def generate_ir(program):
                     for s in stmt['else']:
                         if s['type'] == 'goto':
                             ir_code.append(('GOTO', f"scene_{s['target']}", None, None))
+                        elif s['type'] == 'say':
+                            ir_code.append(('SAY', s['character'], s['text'], None))
                     ir_code.append(('LABEL', end_label, None, None))
                 else:
                     ir_code.append(('LABEL', else_label, None, None))
@@ -341,60 +368,77 @@ def generate_ir(program):
     return ir_code
 
 
-def print_ir(ir_code):
-    print("\n" + "="*50)
-    print("THREE-ADDRESS CODE (TAC)")
-    print("="*50)
-    
-    print(f"\n{'#':<4} {'Op':<12} {'Arg1':<15} {'Arg2':<15} {'Result':<10}")
-    print(f"{'-'*4} {'-'*12} {'-'*15} {'-'*15} {'-'*10}")
+def optimize(ir_code):
+    """Apply constant folding optimization."""
+    optimized = []
+    constants = {}
+    optimizations_done = []
     
     for i, (op, arg1, arg2, result) in enumerate(ir_code):
-        a1 = str(arg1)[:14] if arg1 is not None else "-"
-        a2 = str(arg2)[:14] if arg2 is not None else "-"
-        res = str(result)[:9] if result is not None else "-"
-        print(f"{i:<4} {op:<12} {a1:<15} {a2:<15} {res:<10}")
+        
+        if op in ['+', '-']:
+            left_val = constants.get(arg1, arg1)
+            right_val = arg2
+            if isinstance(right_val, dict) and right_val.get('type') == 'number':
+                right_val = right_val['value']
+            right_val = constants.get(str(right_val), right_val)
+            
+            if isinstance(left_val, int) and isinstance(right_val, int):
+                if op == '+':
+                    new_val = left_val + right_val
+                else:
+                    new_val = left_val - right_val
+                optimized.append(('COPY', new_val, None, result))
+                constants[result] = new_val
+                optimizations_done.append(f"Constant folding: {arg1} {op} {right_val} = {new_val}")
+                continue
+        
+        if op == 'SET':
+            if isinstance(arg2, int):
+                constants[arg1] = arg2
+        
+        if op == 'COPY' and isinstance(arg1, int):
+            constants[result] = arg1
+        
+        optimized.append((op, arg1, arg2, result))
     
-    print("="*50)
+    return optimized, optimizations_done
 
 
 if __name__ == "__main__":
     import sys
     
     test_code = '''
-STORY "Test"
+STORY "Optimization Test"
 CHARACTER hero "Hero"
-SET health = 100
+SET x = 5
+SET y = 10
 
 SCENE start
-    hero SAY "Starting!"
-    IF health > 50
-        GOTO win
-    ELSE
-        GOTO lose
-    ENDIF
+    hero SAY "Testing optimization!"
+    GOTO end
 END SCENE
 
-SCENE win
-    hero SAY "Win!"
-END SCENE
-
-SCENE lose
-    hero SAY "Lose!"
+SCENE end
+    hero SAY "Done!"
 END SCENE
 
 END STORY
 '''
     
-    print("Phase 1: Tokenizing...")
+    print("="*50)
+    print("StoryScript Compiler - Through Phase 5")
+    print("="*50)
+    
+    print("\nPhase 1: Tokenizing...")
     tokens = tokenize(test_code)
-    print(f"  {len(tokens)} tokens generated")
+    print(f"  {len(tokens)} tokens")
     
     print("\nPhase 2: Parsing...")
     parser = Parser(tokens)
     try:
         program = parser.parse()
-        print("  Parse successful")
+        print("  Success")
     except SyntaxError as e:
         print(f"  Error: {e}")
         sys.exit(1)
@@ -405,9 +449,21 @@ END STORY
         for err in errors:
             print(f"  Error: {err}")
         sys.exit(1)
-    print("  Analysis complete")
+    print("  Success")
     
     print("\nPhase 4: Generating IR...")
     ir_code = generate_ir(program)
-    print(f"  Generated {len(ir_code)} instructions")
-    print_ir(ir_code)
+    print(f"  {len(ir_code)} instructions")
+    
+    print("\nPhase 5: Optimizing...")
+    optimized_ir, optimizations = optimize(ir_code)
+    if optimizations:
+        print(f"  Applied {len(optimizations)} optimizations:")
+        for opt in optimizations:
+            print(f"    - {opt}")
+    else:
+        print("  No optimizations applied")
+    
+    print("\n" + "="*50)
+    print("Compilation complete!")
+    print("="*50)
