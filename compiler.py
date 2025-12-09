@@ -153,9 +153,9 @@ class Parser:
         elif token[0] == 'TRUE':
             self.eat('TRUE')
             return {'type': 'boolean', 'value': True}
-        # elif token[0] == 'FALSE':
-        #     self.eat('FALSE')
-        #     return {'type': 'boolean', 'value': False}
+        elif token[0] == 'FALSE':
+            self.eat('FALSE')
+            return {'type': 'boolean', 'value': False}
         elif token[0] == 'ID':
             self.eat('ID')
             return {'type': 'variable', 'name': token[1]}
