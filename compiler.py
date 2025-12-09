@@ -17,7 +17,9 @@ def tokenize(code):
     while i < len(code):
         char = code[i]
         
-        
+        if char in ' \t':
+            i += 1
+            continue
         
         if char == '\n':
             line += 1
