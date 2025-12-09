@@ -95,10 +95,21 @@ def tokenize(code):
     return tokens
 
 
+def print_tokens(tokens):
+    print("\n" + "="*50)
+    print("PHASE 1: TOKEN STREAM")
+    print("="*50)
+    for i, (token_type, value, line) in enumerate(tokens):
+        print(f"  {i+1:3}. [{token_type:10}] {repr(value):20} (line {line})")
+    print("="*50)
+
+
 class Parser:
+    
     def __init__(self, tokens):
         self.tokens = tokens
         self.pos = 0
+        self.parse_steps = []
     
     def current(self):
         if self.pos < len(self.tokens):
@@ -114,6 +125,8 @@ class Parser:
             raise SyntaxError(f"Expected {expected_type}, got {token[0]} at line {token[2]}")
     
     def parse(self):
+        self.parse_steps.append("program -> STORY string declarations scenes END STORY")
+        
         program = {
             'type': 'program',
             'title': '',
@@ -126,12 +139,14 @@ class Parser:
         title_token = self.eat('STRING')
         program['title'] = title_token[1]
         
+        self.parse_steps.append("  declarations -> (CHARACTER | SET)*")
         while self.current()[0] in ['CHARACTER', 'SET']:
             if self.current()[0] == 'CHARACTER':
                 program['characters'].append(self.parse_character())
             else:
                 program['variables'].append(self.parse_variable())
         
+        self.parse_steps.append("  scenes -> SCENE+")
         while self.current()[0] == 'SCENE':
             program['scenes'].append(self.parse_scene())
         
@@ -141,12 +156,14 @@ class Parser:
         return program
     
     def parse_character(self):
+        self.parse_steps.append("    character -> CHARACTER id string")
         self.eat('CHARACTER')
         id_token = self.eat('ID')
         name_token = self.eat('STRING')
         return {'id': id_token[1], 'name': name_token[1]}
     
     def parse_variable(self):
+        self.parse_steps.append("    variable -> SET id = value")
         self.eat('SET')
         id_token = self.eat('ID')
         self.eat('ASSIGN')
@@ -172,10 +189,14 @@ class Parser:
                 right = self.parse_value()
                 return {'type': 'binary', 'op': op, 'left': token[1], 'right': right}
             return {'type': 'variable', 'name': token[1]}
+        elif token[0] == 'STRING':
+            self.eat('STRING')
+            return {'type': 'string', 'value': token[1]}
         else:
             raise SyntaxError(f"Unexpected value: {token}")
     
     def parse_scene(self):
+        self.parse_steps.append("    scene -> SCENE id statements END SCENE")
         self.eat('SCENE')
         id_token = self.eat('ID')
         
@@ -193,12 +214,14 @@ class Parser:
         token = self.current()
         
         if token[0] == 'ID' and self.pos + 1 < len(self.tokens) and self.tokens[self.pos + 1][0] == 'SAY':
+            self.parse_steps.append("      statement -> id SAY string")
             char_token = self.eat('ID')
             self.eat('SAY')
             text_token = self.eat('STRING')
             return {'type': 'say', 'character': char_token[1], 'text': text_token[1]}
         
         if token[0] == 'CHOICE':
+            self.parse_steps.append("      statement -> CHOICE string -> id")
             self.eat('CHOICE')
             text_token = self.eat('STRING')
             self.eat('ARROW')
@@ -206,11 +229,13 @@ class Parser:
             return {'type': 'choice', 'text': text_token[1], 'target': target_token[1]}
         
         if token[0] == 'GOTO':
+            self.parse_steps.append("      statement -> GOTO id")
             self.eat('GOTO')
             target_token = self.eat('ID')
             return {'type': 'goto', 'target': target_token[1]}
         
         if token[0] == 'SET':
+            self.parse_steps.append("      statement -> SET id = value")
             self.eat('SET')
             id_token = self.eat('ID')
             self.eat('ASSIGN')
@@ -218,6 +243,7 @@ class Parser:
             return {'type': 'set', 'variable': id_token[1], 'value': value}
         
         if token[0] == 'IF':
+            self.parse_steps.append("      statement -> IF condition statements [ELSE statements] ENDIF")
             self.eat('IF')
             condition = self.parse_condition()
             
@@ -248,6 +274,34 @@ class Parser:
         return left
 
 
+def print_parse_tree(parser):
+    print("\n" + "="*50)
+    print("PHASE 2: PARSE TREE (Derivation)")
+    print("="*50)
+    for step in parser.parse_steps:
+        print(step)
+    print("="*50)
+
+
+def print_ast(program, indent=0):
+    prefix = "  " * indent
+    print(f"{prefix}Program: {program['title']}")
+    
+    print(f"{prefix}  Characters:")
+    for char in program['characters']:
+        print(f"{prefix}    - {char['id']} = \"{char['name']}\"")
+    
+    print(f"{prefix}  Variables:")
+    for var in program['variables']:
+        print(f"{prefix}    - {var['id']} = {var['value']}")
+    
+    print(f"{prefix}  Scenes:")
+    for scene in program['scenes']:
+        print(f"{prefix}    Scene: {scene['id']}")
+        for stmt in scene['statements']:
+            print(f"{prefix}      - {stmt}")
+
+
 def semantic_analysis(program):
     errors = []
     symbol_table = {
@@ -260,7 +314,10 @@ def semantic_analysis(program):
         symbol_table['characters'][char['id']] = char['name']
     
     for var in program['variables']:
-        symbol_table['variables'][var['id']] = var['value']
+        symbol_table['variables'][var['id']] = {
+            'value': var['value'],
+            'type': get_type(var['value'])
+        }
     
     for scene in program['scenes']:
         symbol_table['scenes'][scene['id']] = True
@@ -273,13 +330,43 @@ def semantic_analysis(program):
             
             if stmt['type'] == 'choice':
                 if stmt['target'] not in symbol_table['scenes']:
-                    errors.append(f"Undefined scene: {stmt['target']}")
+                    errors.append(f"Undefined scene in CHOICE: {stmt['target']}")
             
             if stmt['type'] == 'goto':
                 if stmt['target'] not in symbol_table['scenes']:
-                    errors.append(f"Undefined scene: {stmt['target']}")
+                    errors.append(f"Undefined scene in GOTO: {stmt['target']}")
     
     return symbol_table, errors
+
+
+def get_type(value):
+    if isinstance(value, dict):
+        return value.get('type', 'unknown')
+    return type(value).__name__
+
+
+def print_symbol_table(symbol_table):
+    print("\n" + "="*50)
+    print("PHASE 3: SYMBOL TABLE")
+    print("="*50)
+    
+    print("\n  Characters:")
+    print(f"    {'ID':<15} {'Display Name':<20}")
+    print(f"    {'-'*15} {'-'*20}")
+    for id, name in symbol_table['characters'].items():
+        print(f"    {id:<15} {name:<20}")
+    
+    print("\n  Variables:")
+    print(f"    {'ID':<15} {'Type':<10} {'Value':<15}")
+    print(f"    {'-'*15} {'-'*10} {'-'*15}")
+    for id, info in symbol_table['variables'].items():
+        print(f"    {id:<15} {info['type']:<10} {str(info['value']):<15}")
+    
+    print("\n  Scenes:")
+    for scene_id in symbol_table['scenes']:
+        print(f"    - {scene_id}")
+    
+    print("="*50)
 
 
 def generate_ir(program):
@@ -306,6 +393,8 @@ def generate_ir(program):
             ir_code.append(('SET', var['id'], value['value'], None))
         elif isinstance(value, dict) and value['type'] == 'boolean':
             ir_code.append(('SET', var['id'], 1 if value['value'] else 0, None))
+        else:
+            ir_code.append(('SET', var['id'], value, None))
     
     for scene in program['scenes']:
         ir_code.append(('LABEL', f"scene_{scene['id']}", None, None))
@@ -329,6 +418,10 @@ def generate_ir(program):
                         ir_code.append(('COPY', temp, None, stmt['variable']))
                     elif value['type'] == 'number':
                         ir_code.append(('COPY', value['value'], None, stmt['variable']))
+                    elif value['type'] == 'boolean':
+                        ir_code.append(('COPY', 1 if value['value'] else 0, None, stmt['variable']))
+                    else:
+                        ir_code.append(('COPY', value, None, stmt['variable']))
             
             elif stmt['type'] == 'if':
                 else_label = new_label()
@@ -342,21 +435,18 @@ def generate_ir(program):
                     right_val = right['name'] if right['type'] == 'variable' else right['value']
                     
                     ir_code.append(('IF_FALSE', f"{left_val} {cond['op']} {right_val}", else_label, None))
+                else:
+                    val = cond['name'] if cond['type'] == 'variable' else cond['value']
+                    ir_code.append(('IF_FALSE', val, else_label, None))
                 
                 for s in stmt['then']:
-                    if s['type'] == 'goto':
-                        ir_code.append(('GOTO', f"scene_{s['target']}", None, None))
-                    elif s['type'] == 'say':
-                        ir_code.append(('SAY', s['character'], s['text'], None))
+                    generate_stmt_ir(s, ir_code, new_temp, new_label)
                 
                 if stmt['else']:
                     ir_code.append(('GOTO', end_label, None, None))
                     ir_code.append(('LABEL', else_label, None, None))
                     for s in stmt['else']:
-                        if s['type'] == 'goto':
-                            ir_code.append(('GOTO', f"scene_{s['target']}", None, None))
-                        elif s['type'] == 'say':
-                            ir_code.append(('SAY', s['character'], s['text'], None))
+                        generate_stmt_ir(s, ir_code, new_temp, new_label)
                     ir_code.append(('LABEL', end_label, None, None))
                 else:
                     ir_code.append(('LABEL', else_label, None, None))
@@ -368,8 +458,59 @@ def generate_ir(program):
     return ir_code
 
 
+def generate_stmt_ir(stmt, ir_code, new_temp, new_label):
+    if stmt['type'] == 'say':
+        ir_code.append(('SAY', stmt['character'], stmt['text'], None))
+    elif stmt['type'] == 'goto':
+        ir_code.append(('GOTO', f"scene_{stmt['target']}", None, None))
+    elif stmt['type'] == 'set':
+        value = stmt['value']
+        if isinstance(value, dict) and value['type'] == 'number':
+            ir_code.append(('COPY', value['value'], None, stmt['variable']))
+
+
+def print_ir(ir_code):
+    print("\n" + "="*50)
+    print("PHASE 4: THREE-ADDRESS CODE (TAC)")
+    print("="*50)
+    
+    print("\n  Quadruples (op, arg1, arg2, result):")
+    print(f"  {'#':<4} {'Op':<12} {'Arg1':<15} {'Arg2':<15} {'Result':<10}")
+    print(f"  {'-'*4} {'-'*12} {'-'*15} {'-'*15} {'-'*10}")
+    
+    for i, (op, arg1, arg2, result) in enumerate(ir_code):
+        a1 = str(arg1)[:14] if arg1 is not None else "-"
+        a2 = str(arg2)[:14] if arg2 is not None else "-"
+        res = str(result)[:9] if result is not None else "-"
+        print(f"  {i:<4} {op:<12} {a1:<15} {a2:<15} {res:<10}")
+    
+    print("\n  TAC Instructions:")
+    for op, arg1, arg2, result in ir_code:
+        if op == 'LABEL':
+            print(f"  {arg1}:")
+        elif op == 'GOTO':
+            print(f"    goto {arg1}")
+        elif op == 'IF_FALSE':
+            print(f"    if NOT ({arg1}) goto {arg2}")
+        elif op == 'SAY':
+            print(f"    SAY({arg1}, \"{arg2}\")")
+        elif op == 'CHOICE':
+            print(f"    CHOICE(\"{arg1}\", {arg2})")
+        elif op == 'COPY':
+            print(f"    {result} = {arg1}")
+        elif op in ['+', '-']:
+            print(f"    {result} = {arg1} {op} {arg2}")
+        elif op == 'SET':
+            print(f"    {arg1} = {arg2}")
+        elif op == 'PROGRAM':
+            print(f"  PROGRAM: \"{arg1}\"")
+        elif op == 'END_PROGRAM':
+            print(f"  END")
+    
+    print("="*50)
+
+
 def optimize(ir_code):
-    """Apply constant folding optimization."""
     optimized = []
     constants = {}
     optimizations_done = []
@@ -405,65 +546,201 @@ def optimize(ir_code):
     return optimized, optimizations_done
 
 
-if __name__ == "__main__":
-    import sys
+def print_optimization(optimized_ir, optimizations):
+    print("\n" + "="*50)
+    print("PHASE 5: OPTIMIZATION")
+    print("="*50)
     
-    test_code = '''
-STORY "Optimization Test"
-CHARACTER hero "Hero"
-SET x = 5
-SET y = 10
+    if optimizations:
+        print("\n  Optimizations performed:")
+        for opt in optimizations:
+            print(f"    - {opt}")
+    else:
+        print("\n  No optimizations applied.")
+    
+    print("\n  Optimized code: (same as TAC if no changes)")
+    print("="*50)
+
+
+def generate_target_code(ir_code, program):
+    lines = []
+    lines.append("# Generated StoryScript Program")
+    lines.append("# Target Code Output")
+    lines.append("")
+    lines.append("# --- Data Section ---")
+    lines.append("characters = {}")
+    lines.append("variables = {}")
+    lines.append("choices = []")
+    lines.append("")
+    
+    for char in program['characters']:
+        lines.append(f"characters['{char['id']}'] = \"{char['name']}\"")
+    
+    lines.append("")
+    
+    for var in program['variables']:
+        val = var['value']
+        if isinstance(val, dict):
+            if val['type'] == 'number':
+                lines.append(f"variables['{var['id']}'] = {val['value']}")
+            elif val['type'] == 'boolean':
+                lines.append(f"variables['{var['id']}'] = {val['value']}")
+        else:
+            lines.append(f"variables['{var['id']}'] = {val}")
+    
+    lines.append("")
+    lines.append("# --- Code Section ---")
+    
+    for scene in program['scenes']:
+        lines.append(f"")
+        lines.append(f"def scene_{scene['id']}():")
+        lines.append(f"    global choices")
+        lines.append(f"    choices = []")
+        
+        for stmt in scene['statements']:
+            if stmt['type'] == 'say':
+                lines.append(f"    print(f\"{{characters['{stmt['character']}']}}:  {stmt['text']}\")")
+            
+            elif stmt['type'] == 'choice':
+                lines.append(f"    choices.append((\"{stmt['text']}\", scene_{stmt['target']}))")
+            
+            elif stmt['type'] == 'goto':
+                lines.append(f"    return scene_{stmt['target']}")
+            
+            elif stmt['type'] == 'set':
+                val = stmt['value']
+                if isinstance(val, dict):
+                    if val['type'] == 'number':
+                        lines.append(f"    variables['{stmt['variable']}'] = {val['value']}")
+                    elif val['type'] == 'binary':
+                        right_val = val['right']
+                        if isinstance(right_val, dict) and right_val['type'] == 'number':
+                            right_val = right_val['value']
+                        lines.append(f"    variables['{stmt['variable']}'] = variables['{val['left']}'] {val['op']} {right_val}")
+            
+            elif stmt['type'] == 'if':
+                cond = stmt['condition']
+                if cond['type'] == 'comparison':
+                    left = cond['left']
+                    right = cond['right']
+                    left_str = f"variables['{left['name']}']" if left['type'] == 'variable' else left['value']
+                    right_str = f"variables['{right['name']}']" if right['type'] == 'variable' else right['value']
+                    lines.append(f"    if {left_str} {cond['op']} {right_str}:")
+                else:
+                    val = f"variables['{cond['name']}']" if cond['type'] == 'variable' else cond['value']
+                    lines.append(f"    if {val}:")
+                
+                for s in stmt['then']:
+                    if s['type'] == 'goto':
+                        lines.append(f"        return scene_{s['target']}")
+                    elif s['type'] == 'say':
+                        lines.append(f"        print(f\"{{characters['{s['character']}']}}:  {s['text']}\")")
+                
+                if stmt['else']:
+                    lines.append(f"    else:")
+                    for s in stmt['else']:
+                        if s['type'] == 'goto':
+                            lines.append(f"        return scene_{s['target']}")
+                        elif s['type'] == 'say':
+                            lines.append(f"        print(f\"{{characters['{s['character']}']}}:  {s['text']}\")")
+        
+        lines.append(f"    if choices:")
+        lines.append(f"        print('\\nChoices:')")
+        lines.append(f"        for i, (text, _) in enumerate(choices, 1):")
+        lines.append(f"            print(f'  {{i}}. {{text}}')")
+        lines.append(f"        choice = int(input('Enter choice: '))")
+        lines.append(f"        return choices[choice-1][1]")
+        lines.append(f"    return None")
+    
+    lines.append("")
+    lines.append("# --- Main ---")
+    lines.append(f"print('\\n===  {program['title']}  ===')")
+    lines.append("print()")
+    lines.append(f"next_scene = scene_{program['scenes'][0]['id']}")
+    lines.append("while next_scene:")
+    lines.append("    next_scene = next_scene()")
+    lines.append("print('\\n=== THE END ===')")
+    
+    return "\n".join(lines)
+
+
+def print_target_code(code):
+    print("\n" + "="*50)
+    print("PHASE 6: TARGET CODE (Python)")
+    print("="*50)
+    print(code)
+    print("="*50)
+
+
+if __name__ == "__main__":
+    demo_story = '''
+STORY "Demo"
+
+CHARACTER narrator "Narrator"
+
+SET health = 100
 
 SCENE start
-    hero SAY "Testing optimization!"
-    GOTO end
+    narrator SAY "Welcome!"
+    IF health > 50
+        narrator SAY "You're healthy!"
+        GOTO win
+    ELSE
+        GOTO lose
+    ENDIF
 END SCENE
 
-SCENE end
-    hero SAY "Done!"
+SCENE win
+    narrator SAY "Victory!"
+END SCENE
+
+SCENE lose
+    narrator SAY "Defeat..."
 END SCENE
 
 END STORY
 '''
     
-    print("="*50)
-    print("StoryScript Compiler - Through Phase 5")
+    print("StoryScript Compiler - Through Phase 6")
     print("="*50)
     
-    print("\nPhase 1: Tokenizing...")
-    tokens = tokenize(test_code)
-    print(f"  {len(tokens)} tokens")
+    print("\n[Phase 1] Tokenizing...")
+    tokens = tokenize(demo_story)
+    print(f"  ✓ {len(tokens)} tokens")
     
-    print("\nPhase 2: Parsing...")
+    print("\n[Phase 2] Parsing...")
     parser = Parser(tokens)
     try:
         program = parser.parse()
-        print("  Success")
+        print("  ✓ Parse successful")
     except SyntaxError as e:
-        print(f"  Error: {e}")
-        sys.exit(1)
+        print(f"  ✗ Error: {e}")
+        exit(1)
     
-    print("\nPhase 3: Semantic Analysis...")
+    print("\n[Phase 3] Semantic Analysis...")
     symbol_table, errors = semantic_analysis(program)
     if errors:
         for err in errors:
-            print(f"  Error: {err}")
-        sys.exit(1)
-    print("  Success")
+            print(f"  ✗ {err}")
+        exit(1)
+    print("  ✓ Analysis complete")
     
-    print("\nPhase 4: Generating IR...")
+    print("\n[Phase 4] Generating IR...")
     ir_code = generate_ir(program)
-    print(f"  {len(ir_code)} instructions")
+    print(f"  ✓ {len(ir_code)} instructions")
     
-    print("\nPhase 5: Optimizing...")
+    print("\n[Phase 5] Optimizing...")
     optimized_ir, optimizations = optimize(ir_code)
-    if optimizations:
-        print(f"  Applied {len(optimizations)} optimizations:")
-        for opt in optimizations:
-            print(f"    - {opt}")
-    else:
-        print("  No optimizations applied")
+    print(f"  ✓ {len(optimizations)} optimizations applied")
+    
+    print("\n[Phase 6] Generating target code...")
+    target_code = generate_target_code(optimized_ir, program)
+    print("  ✓ Code generation complete")
     
     print("\n" + "="*50)
-    print("Compilation complete!")
+    print("GENERATED PYTHON CODE:")
     print("="*50)
+    print(target_code)
+    print("="*50)
+    print("\nCompilation successful!")
+    print("Note: To execute the generated code, copy it to a .py file and run it.")
