@@ -7,10 +7,9 @@ Mustafa Shahzad 22k-4166
 Muhammad Alyan 22k-4582
 """
 
-KEYWORDS = ['STORY', 'END', 'SCENE', 'CHARACTER', 'SAY', 'CHOICE', 'GOTO', 'SET', 'IF', 'ELSE', 'ENDIF']
+KEYWORDS = ['STORY', 'END', 'SCENE', 'CHARACTER', 'SAY', 'CHOICE', 'GOTO', 'SET', 'IF', 'ELSE', 'ENDIF', 'TRUE', 'FALSE']
 
 def tokenize(code):
-    """Break code into tokens."""
     tokens = []
     i = 0
     line = 1
@@ -18,9 +17,7 @@ def tokenize(code):
     while i < len(code):
         char = code[i]
         
-        if char in ' \t':
-            i += 1
-            continue
+        
         
         if char == '\n':
             line += 1
@@ -151,6 +148,12 @@ class Parser:
         if token[0] == 'NUMBER':
             self.eat('NUMBER')
             return {'type': 'number', 'value': token[1]}
+        elif token[0] == 'TRUE':
+            self.eat('TRUE')
+            return {'type': 'boolean', 'value': True}
+        # elif token[0] == 'FALSE':
+        #     self.eat('FALSE')
+        #     return {'type': 'boolean', 'value': False}
         elif token[0] == 'ID':
             self.eat('ID')
             return {'type': 'variable', 'name': token[1]}
@@ -264,22 +267,91 @@ def semantic_analysis(program):
     return symbol_table, errors
 
 
-def print_symbol_table(symbol_table):
+def generate_ir(program):
+    ir_code = []
+    label_counter = [0]
+    
+    def new_label():
+        label_counter[0] += 1
+        return f"L{label_counter[0]}"
+    
+    ir_code.append(('PROGRAM', program['title'], None, None))
+    
+    for char in program['characters']:
+        ir_code.append(('CHAR', char['id'], char['name'], None))
+    
+    for var in program['variables']:
+        value = var['value']
+        if isinstance(value, dict) and value['type'] == 'number':
+            ir_code.append(('SET', var['id'], value['value'], None))
+        elif isinstance(value, dict) and value['type'] == 'boolean':
+            ir_code.append(('SET', var['id'], 1 if value['value'] else 0, None))
+    
+    for scene in program['scenes']:
+        ir_code.append(('LABEL', f"scene_{scene['id']}", None, None))
+        
+        for stmt in scene['statements']:
+            if stmt['type'] == 'say':
+                ir_code.append(('SAY', stmt['character'], stmt['text'], None))
+            
+            elif stmt['type'] == 'choice':
+                ir_code.append(('CHOICE', stmt['text'], f"scene_{stmt['target']}", None))
+            
+            elif stmt['type'] == 'goto':
+                ir_code.append(('GOTO', f"scene_{stmt['target']}", None, None))
+            
+            elif stmt['type'] == 'set':
+                value = stmt['value']
+                if isinstance(value, dict) and value['type'] == 'number':
+                    ir_code.append(('COPY', value['value'], None, stmt['variable']))
+            
+            elif stmt['type'] == 'if':
+                else_label = new_label()
+                end_label = new_label()
+                
+                cond = stmt['condition']
+                if cond['type'] == 'comparison':
+                    left = cond['left']
+                    right = cond['right']
+                    left_val = left['name'] if left['type'] == 'variable' else left['value']
+                    right_val = right['name'] if right['type'] == 'variable' else right['value']
+                    
+                    ir_code.append(('IF_FALSE', f"{left_val} {cond['op']} {right_val}", else_label, None))
+                
+                for s in stmt['then']:
+                    if s['type'] == 'goto':
+                        ir_code.append(('GOTO', f"scene_{s['target']}", None, None))
+                
+                if stmt['else']:
+                    ir_code.append(('GOTO', end_label, None, None))
+                    ir_code.append(('LABEL', else_label, None, None))
+                    for s in stmt['else']:
+                        if s['type'] == 'goto':
+                            ir_code.append(('GOTO', f"scene_{s['target']}", None, None))
+                    ir_code.append(('LABEL', end_label, None, None))
+                else:
+                    ir_code.append(('LABEL', else_label, None, None))
+        
+        ir_code.append(('END_SCENE', scene['id'], None, None))
+    
+    ir_code.append(('END_PROGRAM', None, None, None))
+    
+    return ir_code
+
+
+def print_ir(ir_code):
     print("\n" + "="*50)
-    print("Symbol Table")
+    print("THREE-ADDRESS CODE (TAC)")
     print("="*50)
     
-    print("\nCharacters:")
-    for id, name in symbol_table['characters'].items():
-        print(f"  {id} -> {name}")
+    print(f"\n{'#':<4} {'Op':<12} {'Arg1':<15} {'Arg2':<15} {'Result':<10}")
+    print(f"{'-'*4} {'-'*12} {'-'*15} {'-'*15} {'-'*10}")
     
-    print("\nVariables:")
-    for id, val in symbol_table['variables'].items():
-        print(f"  {id} = {val}")
-    
-    print("\nScenes:")
-    for scene_id in symbol_table['scenes']:
-        print(f"  {scene_id}")
+    for i, (op, arg1, arg2, result) in enumerate(ir_code):
+        a1 = str(arg1)[:14] if arg1 is not None else "-"
+        a2 = str(arg2)[:14] if arg2 is not None else "-"
+        res = str(result)[:9] if result is not None else "-"
+        print(f"{i:<4} {op:<12} {a1:<15} {a2:<15} {res:<10}")
     
     print("="*50)
 
@@ -288,12 +360,12 @@ if __name__ == "__main__":
     import sys
     
     test_code = '''
-STORY "Adventure"
+STORY "Test"
 CHARACTER hero "Hero"
 SET health = 100
 
 SCENE start
-    hero SAY "Let's begin!"
+    hero SAY "Starting!"
     IF health > 50
         GOTO win
     ELSE
@@ -302,11 +374,11 @@ SCENE start
 END SCENE
 
 SCENE win
-    hero SAY "Victory!"
+    hero SAY "Win!"
 END SCENE
 
 SCENE lose
-    hero SAY "Defeat..."
+    hero SAY "Lose!"
 END SCENE
 
 END STORY
@@ -314,7 +386,7 @@ END STORY
     
     print("Phase 1: Tokenizing...")
     tokens = tokenize(test_code)
-    print(f"  Generated {len(tokens)} tokens")
+    print(f"  {len(tokens)} tokens generated")
     
     print("\nPhase 2: Parsing...")
     parser = Parser(tokens)
@@ -330,6 +402,10 @@ END STORY
     if errors:
         for err in errors:
             print(f"  Error: {err}")
-    else:
-        print("  Analysis complete")
-        print_symbol_table(symbol_table)
+        sys.exit(1)
+    print("  Analysis complete")
+    
+    print("\nPhase 4: Generating IR...")
+    ir_code = generate_ir(program)
+    print(f"  Generated {len(ir_code)} instructions")
+    print_ir(ir_code)
