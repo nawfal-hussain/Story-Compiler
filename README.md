@@ -39,3 +39,8 @@ result = 15
 ## Test Results
 
 Running sample programs shows successful optimization of constant arithmetic expressions.
+
+The compiler now outputs functional Python code that can execute stories.
+
+## Note:
+This version generates code but doesn't yet support loading from files.
