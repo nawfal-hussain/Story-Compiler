@@ -4,40 +4,38 @@
 
 ---
 
-## Usage
+## Current Status
 
-```bash
-python compiler.py
+✓ Phase 1: Lexical Analysis  
+✓ Phase 2: Syntax Analysis  
+✓ Phase 3: Semantic Analysis  
+✓ Phase 4: IR Generation  
+✓ Phase 5: Optimization
+
+Next: Code Generation
+
+---
+
+## Optimization
+
+The compiler implements constant folding:
+- Evaluates constant expressions at compile time
+- Reduces arithmetic operations where possible
+- Tracks constant values through the symbol table
+
+**Example:**
+```
+SET x = 5
+SET y = 10
+SET result = x + y
+```
+becomes:
+```
+result = 15
 ```
 
 ---
 
-## Intermediate Representation
+## Test Results
 
-The compiler generates three-address code (TAC) using quadruples.
-
-**Quadruple Format:** `(operation, arg1, arg2, result)`
-
-**Operations:**
-- `PROGRAM` - Program header
-- `CHAR` - Character declaration
-- `SET` - Variable assignment
-- `LABEL` - Code label
-- `SAY` - Dialogue output
-- `CHOICE` - User choice
-- `GOTO` - Unconditional jump
-- `IF_FALSE` - Conditional jump
-- `COPY` - Value copy
-
----
-
-## Example Output
-
-```
-#    Op           Arg1            Arg2            Result    
----- ------------ --------------- --------------- ----------
-0    PROGRAM      Test            -               -         
-1    CHAR         hero            Hero            -         
-2    SET          health          100             -         
-3    LABEL        scene_start     -               -         
-```
+Running sample programs shows successful optimization of constant arithmetic expressions.
