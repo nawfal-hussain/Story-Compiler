@@ -7,9 +7,15 @@ Mustafa Shahzad 22k-4166
 Muhammad Alyan 22k-4582
 """
 
+"""
+StoryScript Compiler
+CS4031 Compiler Construction Project
+"""
+
 KEYWORDS = ['STORY', 'END', 'SCENE', 'CHARACTER', 'SAY', 'CHOICE', 'GOTO', 'SET', 'IF', 'ELSE', 'ENDIF', 'TRUE', 'FALSE']
 
 def tokenize(code):
+    """Break code into tokens."""
     tokens = []
     i = 0
     line = 1
@@ -96,6 +102,7 @@ def tokenize(code):
 
 
 def print_tokens(tokens):
+    """Display token stream in a nice format."""
     print("\n" + "="*50)
     print("PHASE 1: TOKEN STREAM")
     print("="*50)
@@ -104,7 +111,15 @@ def print_tokens(tokens):
     print("="*50)
 
 
+#############################################
+# PHASE 2: SYNTAX ANALYSIS (Parser)
+#############################################
+
 class Parser:
+    """
+    Phase 2: Check if tokens follow the grammar rules.
+    Build a simple structure (like a tree) of the program.
+    """
     
     def __init__(self, tokens):
         self.tokens = tokens
@@ -573,11 +588,13 @@ def generate_target_code(ir_code, program):
     lines.append("choices = []")
     lines.append("")
     
+    # Initialize characters
     for char in program['characters']:
         lines.append(f"characters['{char['id']}'] = \"{char['name']}\"")
     
     lines.append("")
     
+    # Initialize variables
     for var in program['variables']:
         val = var['value']
         if isinstance(val, dict):
@@ -644,6 +661,7 @@ def generate_target_code(ir_code, program):
                         elif s['type'] == 'say':
                             lines.append(f"        print(f\"{{characters['{s['character']}']}}:  {s['text']}\")")
         
+        # Handle choices at end
         lines.append(f"    if choices:")
         lines.append(f"        print('\\nChoices:')")
         lines.append(f"        for i, (text, _) in enumerate(choices, 1):")
@@ -672,75 +690,222 @@ def print_target_code(code):
     print("="*50)
 
 
-if __name__ == "__main__":
-    demo_story = '''
-STORY "Demo"
-
-CHARACTER narrator "Narrator"
-
-SET health = 100
-
-SCENE start
-    narrator SAY "Welcome!"
-    IF health > 50
-        narrator SAY "You're healthy!"
-        GOTO win
-    ELSE
-        GOTO lose
-    ENDIF
-END SCENE
-
-SCENE win
-    narrator SAY "Victory!"
-END SCENE
-
-SCENE lose
-    narrator SAY "Defeat..."
-END SCENE
-
-END STORY
-'''
+def run_story(program):
+    characters = {}
+    variables = {}
+    scenes = {}
     
-    print("StoryScript Compiler - Through Phase 6")
+    for char in program['characters']:
+        characters[char['id']] = char['name']
+    
+    for var in program['variables']:
+        val = var['value']
+        if isinstance(val, dict):
+            if val['type'] == 'number':
+                variables[var['id']] = val['value']
+            elif val['type'] == 'boolean':
+                variables[var['id']] = val['value']
+        else:
+            variables[var['id']] = val
+    
+    for scene in program['scenes']:
+        scenes[scene['id']] = scene
+    
+    print(f"\n{'='*50}")
+    print(f"  {program['title']}")
+    print(f"{'='*50}\n")
+    
+    current_scene = program['scenes'][0]['id']
+    
+    while current_scene:
+        scene = scenes[current_scene]
+        choices = []
+        next_scene = None
+        
+        for stmt in scene['statements']:
+            if stmt['type'] == 'say':
+                char_name = characters.get(stmt['character'], stmt['character'])
+                print(f"{char_name}:  {stmt['text']}")
+            
+            elif stmt['type'] == 'choice':
+                choices.append((stmt['text'], stmt['target']))
+            
+            elif stmt['type'] == 'goto':
+                next_scene = stmt['target']
+                break
+            
+            elif stmt['type'] == 'set':
+                val = stmt['value']
+                if isinstance(val, dict):
+                    if val['type'] == 'number':
+                        variables[stmt['variable']] = val['value']
+                    elif val['type'] == 'boolean':
+                        variables[stmt['variable']] = val['value']
+                    elif val['type'] == 'binary':
+                        left_val = variables.get(val['left'], 0)
+                        right_val = val['right']
+                        if isinstance(right_val, dict):
+                            right_val = right_val.get('value', 0)
+                        if val['op'] == '+':
+                            variables[stmt['variable']] = left_val + right_val
+                        elif val['op'] == '-':
+                            variables[stmt['variable']] = left_val - right_val
+            
+            elif stmt['type'] == 'if':
+                cond = stmt['condition']
+                condition_met = False
+                
+                if cond['type'] == 'comparison':
+                    left = cond['left']
+                    right = cond['right']
+                    left_val = variables.get(left['name'], left.get('value', 0)) if left['type'] == 'variable' else left.get('value', 0)
+                    right_val = variables.get(right['name'], right.get('value', 0)) if right['type'] == 'variable' else right.get('value', 0)
+                    
+                    if cond['op'] == '>':
+                        condition_met = left_val > right_val
+                    elif cond['op'] == '<':
+                        condition_met = left_val < right_val
+                    elif cond['op'] == '==':
+                        condition_met = left_val == right_val
+                else:
+                    val = variables.get(cond.get('name'), cond.get('value', False))
+                    condition_met = bool(val)
+                
+                branch = stmt['then'] if condition_met else stmt['else']
+                for s in branch:
+                    if s['type'] == 'goto':
+                        next_scene = s['target']
+                        break
+                    elif s['type'] == 'say':
+                        char_name = characters.get(s['character'], s['character'])
+                        print(f"{char_name}:  {s['text']}")
+                
+                if next_scene:
+                    break
+        
+        if next_scene:
+            current_scene = next_scene
+            continue
+        
+        if choices:
+            print("\nChoices:")
+            for i, (text, target) in enumerate(choices, 1):
+                print(f"  {i}. {text}")
+            
+            try:
+                choice = int(input("\nEnter choice: "))
+                if 1 <= choice <= len(choices):
+                    current_scene = choices[choice - 1][1]
+                else:
+                    print("Invalid choice")
+            except (ValueError, EOFError):
+                break
+        else:
+            current_scene = None
+    
+    print(f"\n{'='*50}")
+    print("  THE END")
+    print(f"{'='*50}\n")
+
+
+def compile_story(source_code, show_phases=False, run=True):
+    print("StoryScript Compiler")
     print("="*50)
     
     print("\n[Phase 1] Tokenizing...")
-    tokens = tokenize(demo_story)
-    print(f"  ✓ {len(tokens)} tokens")
+    tokens = tokenize(source_code)
+    if show_phases:
+        print_tokens(tokens)
+    print("  ✓ Tokenization complete")
     
     print("\n[Phase 2] Parsing...")
     parser = Parser(tokens)
     try:
         program = parser.parse()
-        print("  ✓ Parse successful")
+        if show_phases:
+            print_parse_tree(parser)
+            print("\n" + "="*50)
+            print("ABSTRACT SYNTAX TREE (AST)")
+            print("="*50)
+            print_ast(program)
+            print("="*50)
+        print("  ✓ Parsing complete")
     except SyntaxError as e:
-        print(f"  ✗ Error: {e}")
-        exit(1)
+        print(f"  ✗ Syntax Error: {e}")
+        return
     
     print("\n[Phase 3] Semantic Analysis...")
     symbol_table, errors = semantic_analysis(program)
+    if show_phases:
+        print_symbol_table(symbol_table)
     if errors:
         for err in errors:
-            print(f"  ✗ {err}")
-        exit(1)
-    print("  ✓ Analysis complete")
+            print(f"  ✗ Error: {err}")
+        return
+    print("  ✓ Semantic analysis complete")
     
     print("\n[Phase 4] Generating IR...")
     ir_code = generate_ir(program)
-    print(f"  ✓ {len(ir_code)} instructions")
+    if show_phases:
+        print_ir(ir_code)
+    print("  ✓ IR generation complete")
     
     print("\n[Phase 5] Optimizing...")
     optimized_ir, optimizations = optimize(ir_code)
-    print(f"  ✓ {len(optimizations)} optimizations applied")
+    if show_phases:
+        print_optimization(optimized_ir, optimizations)
+    print(f"  ✓ Optimization complete ({len(optimizations)} optimizations)")
     
     print("\n[Phase 6] Generating target code...")
     target_code = generate_target_code(optimized_ir, program)
+    if show_phases:
+        print_target_code(target_code)
     print("  ✓ Code generation complete")
     
     print("\n" + "="*50)
-    print("GENERATED PYTHON CODE:")
+    print("Compilation Successful!")
     print("="*50)
-    print(target_code)
-    print("="*50)
-    print("\nCompilation successful!")
-    print("Note: To execute the generated code, copy it to a .py file and run it.")
+    
+    if run:
+        print("\n\nRunning story...\n")
+        run_story(program)
+    
+    return program, target_code
+
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) > 1:
+        filename = sys.argv[1]
+        show_phases = '--phases' in sys.argv or '-p' in sys.argv
+        no_run = '--no-run' in sys.argv or '-n' in sys.argv
+        
+        try:
+            with open(filename, 'r') as f:
+                source = f.read()
+            compile_story(source, show_phases=show_phases, run=not no_run)
+        except FileNotFoundError:
+            print(f"Error: File '{filename}' not found")
+    else:
+        demo_story = '''
+STORY "Hello World"
+
+CHARACTER narrator "Narrator"
+
+SET counter = 1
+
+SCENE start
+    narrator SAY "Welcome to StoryScript!"
+    narrator SAY "This is a simple demo."
+    GOTO ending
+END SCENE
+
+SCENE ending
+    narrator SAY "Goodbye!"
+END SCENE
+
+END STORY
+'''
+        print("No file provided. Running demo...\n")
+        compile_story(demo_story, show_phases=True)
